@@ -1,6 +1,6 @@
-# Parcel Proof · 包裹回执验证
+# Dispatch Replay · 投递回放
 
-旧版包裹分发台用 `dispatch(lane, request, parcel)` 投递包裹。新版删除了这个名字，却有三个方法能接收同样的参数。Parcel Proof 让它们分别处理两笔虚构订单，用实际写入的投递记录选出替代方法，而不是相信方法名或返回的数字。
+旧版包裹分发台用 `dispatch(lane, request, parcel)` 投递包裹。新版删除了这个名字，却有三个方法能接收同样的参数。Dispatch Replay 让它们分别处理两笔虚构订单，用实际写入的投递记录选出替代方法，而不是相信方法名或返回的数字。
 
 ## 跑一次自动适配
 
