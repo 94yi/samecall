@@ -45,6 +45,7 @@ def build(directory):
     with tempfile.TemporaryDirectory(dir=directory) as root:
         stage = Path(root) / "package"
         stage.mkdir()
+        shutil.copyfile(HERE / "LICENSE", stage / "LICENSE")
         for name in ("service.py", "check_route.py", "runner.py"):
             shutil.copyfile(HERE / name, stage / ("__main__.py" if name == "runner.py" else name))
         (stage / "binding.py").write_text(f"METHOD = {winner!r}\n")
