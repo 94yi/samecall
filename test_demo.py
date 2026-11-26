@@ -96,6 +96,34 @@ class ParameterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "found 2"):
             select(Ambiguous)
 
+    def test_positional_gap_uses_original_default_object(self):
+        from demo import select_plan
+        from service import Desk
+        marker = object()
+
+        class Gap(Desk):
+            def dispatch(self, mode=marker, contents=None, /, *, ticket, chute):
+                if mode is not marker or contents is None:
+                    raise ValueError("wrong default")
+                return self._deliver(chute, ticket, contents)
+
+        plan, _ = select_plan(Gap)
+        self.assertEqual(plan.positional, (None, "parcel"))
+
+    def test_optional_slot_ambiguity_preserves_package(self):
+        from service import Desk
+
+        class Ambiguous(Desk):
+            def dispatch(self, lane, request, *, box=None, bag=None):
+                return self._deliver(lane, request, box if box is not None else bag)
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(build(Path(d))["artifact"])
+            previous = path.read_bytes()
+            with patch("demo.CurrentDesk", Ambiguous), self.assertRaisesRegex(ValueError, "found 2"):
+                build(Path(d))
+            self.assertEqual(path.read_bytes(), previous)
+
     def test_unsupported_signatures_are_not_called(self):
         class Other:
             def dispatch_extra(self, a, b, c, d):

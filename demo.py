@@ -10,7 +10,7 @@ import zipapp
 
 from check_route import check
 from call_plan import adapted, plans_for
-from service import DeskV1, DeskV3
+from service import DeskV1, CurrentDesk
 
 HERE = Path(__file__).resolve().parent
 
@@ -46,7 +46,7 @@ def select(factory):
 
 def build(directory):
     baseline = trial(DeskV1, "dispatch")
-    plan, attempts = select_plan(DeskV3)
+    plan, attempts = select_plan(CurrentDesk)
     winner = plan.method
     directory.mkdir(parents=True, exist_ok=True)
     final = directory / "parcel-adapter.pyz"
