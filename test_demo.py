@@ -195,9 +195,10 @@ class ParameterTest(unittest.TestCase):
         catalog = extract_catalog(PlainLegacy, PlainDesk)
         self.assertFalse(catalog["legacy_ids"])
         self.assertFalse(any(catalog["methods"].values()))
-        filters = (None, sample_filter(PlainLegacy, PlainDesk, old_example),
+        filters = (None, sample_filter(PlainLegacy, PlainDesk, old_example, new_example, direct_only=True),
+                   sample_filter(PlainLegacy, PlainDesk, old_example),
                    sample_filter(PlainLegacy, PlainDesk, old_example, new_example))
-        for predicate, expected in zip(filters, (18, 8, 7)):
+        for predicate, expected in zip(filters, (18, 18, 8, 7)):
             with patch("demo.trial", wraps=trial) as calls:
                 winner, _, _ = discover(PlainDesk, catalog, expected, predicate)
                 self.assertEqual(calls.call_count, expected)
@@ -207,7 +208,7 @@ class ParameterTest(unittest.TestCase):
             self.assertEqual(result["packaged"]["receipts"], [1, 2])
             self.assertEqual(result["packaged"]["retry_receipt"], 1)
 
-    def test_two_direct_forwarders_preserve_previous_package(self):
+    def test_two_helper_forwarders_preserve_previous_package(self):
         from service import PlainDesk
         class Twin(PlainDesk):
             dispatch_a = dispatch_b = PlainDesk.dispatch_v2
@@ -217,6 +218,45 @@ class ParameterTest(unittest.TestCase):
             with patch("demo.CurrentDesk", Twin), self.assertRaisesRegex(ValueError, "found 2"):
                 build(Path(d))
             self.assertEqual(path.read_bytes(), previous)
+
+    def test_only_selected_branch_contributes_evidence(self):
+        from source_evidence import projection, UNKNOWN
+        from service import Desk
+
+        class BranchDesk(Desk):
+            def _alias(self, value):
+                return value
+
+            def _outer(self, value):
+                return self._alias(value)
+
+            def dispatch(self, lane, request, parcel):
+                if lane == "opaque":
+                    value = self._outer(parcel)  # two helper levels
+                elif lane != "other":
+                    value = self._alias(request)
+                else:
+                    value = parcel
+                return self._deliver(lane, request, value)
+
+        project = projection(BranchDesk, BranchDesk.dispatch)
+        self.assertEqual(project("blue", "A", "box"), ("blue", "A", "A"))
+        self.assertEqual(project("other", "A", "box"), ("other", "A", "box"))
+        self.assertIs(project("opaque", "A", "box"), UNKNOWN)
+
+    def test_indirect_write_cannot_be_mistaken_for_pure_assignment(self):
+        from source_evidence import projection, UNKNOWN
+        from service import Desk
+
+        class WritesTwice(Desk):
+            def _record(self, x, y, z):
+                return self._deliver(x, y, z)
+
+            def dispatch(self, lane, request, parcel):
+                first = self._record(lane, request, parcel)
+                return self._deliver("other", request, parcel)
+
+        self.assertIs(projection(WritesTwice, WritesTwice.dispatch)("x", "y", "z"), UNKNOWN)
 
     def test_unsupported_signatures_are_not_called(self):
         class Other:

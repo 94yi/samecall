@@ -77,7 +77,14 @@ class PlainDesk(Desk):
         return 1
 
     def dispatch_redirect(self, a, b, c):
-        return self._deliver("other-lane", b, a)
+        channel = "other-lane"
+        return self._deliver(channel, b, a)
 
-    def dispatch_v2(self, x, /, *, y, z):
-        return self._deliver(z, y, x)
+    def _record(self, channel, ticket, box):
+        return self._deliver(channel, ticket, box)
+
+    def dispatch_v2(self, x, /, *, y, z, preview=False):
+        if preview:
+            return 1
+        contents = x
+        return self._record(z, y, box=contents)

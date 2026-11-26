@@ -131,6 +131,8 @@ if __name__ == "__main__":
         compatible = sample_filter(old, current, old_example, new_example if args.plain else None)
         modes = [("signature_only", None, None), ("with_catalog", catalog, None)]
         if args.plain:
+            modes.append(("direct_only_both_samples", catalog,
+                          sample_filter(old, current, old_example, new_example, direct_only=True)))
             modes.append(("source_old_sample", catalog, sample_filter(old, current, old_example)))
         modes.append(("with_source_and_examples", catalog, compatible))
         for label, info, evidence in modes:
