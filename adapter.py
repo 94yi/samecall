@@ -1,8 +1,6 @@
 """The packaged adapter keeps the original caller-facing method."""
-from binding import METHOD
-from service import DeskV2
+from binding import PLAN
+from call_plan import adapted
+from service import DeskV3
 
-
-class ParcelDesk(DeskV2):
-    def dispatch(self, lane, request, parcel):
-        return getattr(self, METHOD)(lane, request, parcel)
+ParcelDesk = adapted(DeskV3, PLAN)

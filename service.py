@@ -1,4 +1,4 @@
-"""Two invented editions of a parcel desk. Only this service writes delivery receipts."""
+"""Invented editions of a parcel desk. Only this service writes delivery receipts."""
 import sqlite3
 
 
@@ -37,3 +37,11 @@ class DeskV2(Desk):
 
     def dispatch_v2(self, lane, request, parcel):
         return self._deliver(lane, request, parcel)
+
+
+class DeskV3(Desk):
+    dispatch_preview = DeskV2.dispatch_preview
+    dispatch_redirect = DeskV2.dispatch_redirect
+
+    def dispatch_v2(self, contents, /, order_id, *, chute):
+        return self._deliver(chute, order_id, contents)

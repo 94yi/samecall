@@ -62,3 +62,49 @@ class DemoTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     build(Path(d))
             self.assertEqual(path.read_bytes(), b"previous release")
+
+
+class ParameterTest(unittest.TestCase):
+    def test_rename_reorder_and_both(self):
+        from demo import select_plan
+        from service import Desk, DeskV3
+
+        class Renamed(Desk):
+            def dispatch(self, chute, ticket, contents):
+                return self._deliver(chute, ticket, contents)
+
+        class Reordered(Desk):
+            def dispatch(self, parcel, request, lane, /):
+                return self._deliver(lane, request, parcel)
+
+        for factory, pos, kw in [
+            (Renamed, (), {"chute":"lane","ticket":"request","contents":"parcel"}),
+            (Reordered, ("parcel","request","lane"), {}),
+            (DeskV3, ("parcel",), {"order_id":"request","chute":"lane"}),
+        ]:
+            with self.subTest(factory=factory.__name__):
+                plan, _ = select_plan(factory)
+                self.assertEqual((plan.positional, dict(plan.keywords)), (pos, kw))
+
+    def test_two_mappings_for_one_method_are_ambiguous(self):
+        from service import Desk
+        class Ambiguous(Desk):
+            def dispatch(self, a, b, c):
+                # This desk determines the lane by value, accepting two permutations.
+                lane, contents = (a,c) if a.startswith("lane-") else (c,a)
+                return self._deliver(lane, b, contents)
+        with self.assertRaisesRegex(ValueError, "found 2"):
+            select(Ambiguous)
+
+    def test_unsupported_signatures_are_not_called(self):
+        class Other:
+            def dispatch_extra(self, a, b, c, d):
+                raise AssertionError("unexpected call")
+            def dispatch_variadic(self, *args):
+                raise AssertionError("unexpected call")
+        with self.assertRaisesRegex(ValueError, "found 0"):
+            select(Other)
+
+
+if __name__ == "__main__":
+    unittest.main()
