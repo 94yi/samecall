@@ -28,7 +28,7 @@ class CallPlan:
         )
 
 
-def plans_for(name, function, bindings=None):
+def plans_for(name, function, bindings=None, excluded=()):
     if not inspect.isfunction(function):
         return
     p = inspect.Parameter
@@ -53,6 +53,8 @@ def plans_for(name, function, bindings=None):
     for extra in combinations(optional, needed):
         for order in permutations(free):
             sources = {**fixed, **dict(zip((*required, *extra), order))}
+            if any(pair in excluded for pair in sources.items()):
+                continue
             positional = [sources.get(f.name) for f in fields if f.kind == p.POSITIONAL_ONLY]
             while positional and positional[-1] is None:
                 positional.pop()

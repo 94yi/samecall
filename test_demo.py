@@ -6,8 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from demo import HERE, build, discover, select, trial
-from service import DeskV2
+from catalog import extract_catalog
+from demo import build, discover, select, trial
+from service import DeskV1, DeskV2
 
 
 class DemoTest(unittest.TestCase):
@@ -120,9 +121,8 @@ class ParameterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(build(Path(d))["artifact"])
             previous = path.read_bytes()
-            catalog = self.empty_method_catalog(Path(d))
             with patch("demo.CurrentDesk", Ambiguous), self.assertRaisesRegex(ValueError, "found 2"):
-                build(Path(d), catalog_path=catalog)
+                build(Path(d))
             self.assertEqual(path.read_bytes(), previous)
 
     @staticmethod
@@ -148,7 +148,7 @@ class ParameterTest(unittest.TestCase):
 
     def test_catalog_reduces_actual_trials_and_exact_limit_can_succeed(self):
         from service import CurrentDesk
-        catalog = json.loads((HERE / "interface_catalog.json").read_text())
+        catalog = extract_catalog(DeskV1, CurrentDesk)
         for info, expected in ((None, 18), (catalog, 5)):
             with patch("demo.trial", wraps=trial) as calls:
                 plan, _, counts = discover(CurrentDesk, info, expected)
@@ -157,9 +157,30 @@ class ParameterTest(unittest.TestCase):
                 self.assertEqual(plan.keywords, (("order_id","request"),("chute","lane")))
                 self.assertEqual(plan.positional, ("parcel",))
 
+    def test_extract_from_changed_definitions_with_partial_ids(self):
+        from typing import Annotated
+        from fields import FieldID
+        from service import Desk
+
+        class Old:
+            def dispatch(self, lane: Annotated[str, FieldID("route")], request, parcel):
+                pass
+
+        class New(Desk):
+            def dispatch_new(self, x: Annotated[str, FieldID("box")], y, z):
+                return self._deliver(y, z, x)
+
+        catalog = extract_catalog(Old, New)
+        self.assertEqual(catalog, {"legacy_ids": {"lane": "route"},
+                                   "methods": {"dispatch_new": {"ids": {"x": "box"}}}})
+        plan, _, counts = discover(New, catalog)
+        # x cannot be lane, but either unmarked old field remains possible.
+        self.assertEqual(counts, {"dispatch_new": 4})
+        self.assertEqual(dict(plan.keywords), {"x":"parcel", "y":"lane", "z":"request"})
+
     def test_conflicting_catalog_stops_before_trial(self):
         from service import CurrentDesk
-        catalog = json.loads((HERE / "interface_catalog.json").read_text())
+        catalog = extract_catalog(DeskV1, CurrentDesk)
         catalog["methods"]["dispatch_v2"]["renamed_from"]["contents"] = "lane"
         with patch("demo.trial") as calls, self.assertRaisesRegex(ValueError, "conflicting"):
             discover(CurrentDesk, catalog)

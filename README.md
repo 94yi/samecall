@@ -30,9 +30,17 @@ python3 -I build/parcel-adapter.pyz dispatch --db build/orders.sqlite blue order
 
 ## 怎么找到方法和参数的对应关系？
 
-[构建器](demo.py)先取得旧版回执基线，再检查新版类自身定义的 `dispatch*` 实例方法。它先读[自建接口目录](interface_catalog.json)，只生成符合明确声明的参数映射：
+[构建器](demo.py)先取得旧版回执基线，再检查新版类自身定义的 `dispatch*` 实例方法。默认直接从[新旧接口定义](service.py)提取目录，不需要另写 JSON。运行 `python3 demo.py --catalog` 可以查看提取结果，不会试投或打包。方法名、参数名、位置限制和默认值来自 Python 签名；字段身份和改名关系只读签名上明确提供的元数据。例如：
 
-- `legacy_ids` 给每个旧字段一个稳定标识。目标参数的 `ids` 若与旧标识相同，就固定对应关系；若标识是全新的，就不向它传旧值。
+```python
+Contents = Annotated[str, FieldID("desk.contents")]
+# 旧版的 parcel 和新版的 contents 都使用 Contents，因此可确定是同一字段。
+# 新版的 order_id 则声明为 Annotated[str, RenamedFrom("request")]。
+```
+
+只有标记本身需要在接口定义中声明一次，不用在外部目录重复登记。当前读取运行时的 `Annotated`，不会求值字符串注解。没有声明的字段不会因为同名、同为字符串或位置相近就被认定相同。提取结果的含义是：
+
+- `legacy_ids` 给每个旧字段一个稳定标识。目标参数的 `ids` 若与旧标识相同，就固定对应关系；若新旧标识不同就排除该配对。旧字段没有标识时，不能据此排除它。
 - `renamed_from` 是明确的改名声明，例如 `"order_id": "request"`。它与标识冲突、引用不存在的参数，或两个参数争用同一旧字段时，构建停止。
 - 没有声明的字段仍是未知项，不按名字猜。映射必须覆盖目标方法的全部必填项，其他位置才尝试剩余旧值的排列。
 
@@ -41,7 +49,7 @@ python3 -I build/parcel-adapter.pyz dispatch --db build/orders.sqlite blue order
 | 模式 | 预览方法 | 错投方法 | 真正的投递方法 | 合计 |
 | --- | ---: | ---: | ---: | ---: |
 | 只看签名 | 6 | 6 | 6 | 18 |
-| 加上目录声明 | 2 | 2 | 1 | 5 |
+| 从接口定义提取声明 | 2 | 2 | 1 | 5 |
 
 试投上限默认是整个搜索共 64 次，可用 `python3 demo.py --max-trials 5` 调整。恰好在第 5 次排完且唯一通过，可以进入成品复验；用完仍有候选未试，即使已找到一个成功映射也停止，旧包不变。每一种剩余映射都用独立的临时数据库试投；一旦确认第二种也通过，就停止。
 

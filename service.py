@@ -1,5 +1,11 @@
 """Invented editions of a parcel desk. Only this service writes delivery receipts."""
 import sqlite3
+from typing import Annotated
+from fields import FieldID, RenamedFrom
+
+Lane = Annotated[str, FieldID("desk.route")]
+Order = Annotated[str, FieldID("desk.order")]
+Contents = Annotated[str, FieldID("desk.contents")]
 
 
 class Desk:
@@ -24,15 +30,15 @@ class Desk:
 
 
 class DeskV1(Desk):
-    def dispatch(self, lane, request, parcel):
+    def dispatch(self, lane: Lane, request: Order, parcel: Contents):
         return self._deliver(lane, request, parcel)
 
 
 class DeskV2(Desk):
-    def dispatch_preview(self, lane, request, parcel):
+    def dispatch_preview(self, lane, request: Order, parcel):
         return 1  # A plausible ID is not a receipt.
 
-    def dispatch_redirect(self, lane, request, parcel):
+    def dispatch_redirect(self, lane: Lane, request, parcel):
         return self._deliver("other-lane", request, parcel)
 
     def dispatch_v2(self, lane, request, parcel):
@@ -51,7 +57,8 @@ class DeskV4(Desk):
     dispatch_preview = DeskV2.dispatch_preview
     dispatch_redirect = DeskV2.dispatch_redirect
 
-    def dispatch_v2(self, contents, /, label="plain", *, order_id, chute, preview=False):
+    def dispatch_v2(self, contents: Contents, /, label="plain", *,
+                    order_id: Annotated[str, RenamedFrom("request")], chute, preview=False):
         if preview:
             return 1
         return self._deliver(chute, order_id, contents if label == "plain" else label + contents)

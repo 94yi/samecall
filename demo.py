@@ -10,7 +10,7 @@ import sys
 import tempfile
 import zipapp
 
-from catalog import constraints
+from catalog import constraints, extract_catalog, methods_of
 from check_route import check
 from call_plan import adapted, plans_for
 from service import DeskV1, CurrentDesk
@@ -29,9 +29,8 @@ DEFAULT_LIMIT = 64
 def discover(factory, catalog=None, max_trials=DEFAULT_LIMIT):
     if type(max_trials) is not int or max_trials < 0:
         raise ValueError("max_trials must be a nonnegative integer")
-    methods = {n: f for n, f in vars(factory).items()
-               if n.startswith("dispatch") and inspect.isfunction(f)}
-    rules = {}
+    methods = methods_of(factory)
+    rules, exclusions = {}, {}
     if catalog is not None:
         if not isinstance(catalog, dict) or catalog.keys() != {"methods", "legacy_ids"}:
             raise ValueError("invalid interface catalog")
@@ -40,14 +39,18 @@ def discover(factory, catalog=None, max_trials=DEFAULT_LIMIT):
             raise ValueError("catalog refers to an unknown method")
         for name, function in methods.items():
             targets = set(tuple(inspect.signature(function).parameters)[1:])
-            rules[name] = constraints(catalog["legacy_ids"], entries.get(name, {}), targets)
+            entry = entries.get(name, {})
+            legacy_ids = catalog["legacy_ids"]
+            rules[name] = constraints(legacy_ids, entry, targets)
+            exclusions[name] = {(target, source) for target, tid in entry.get("ids", {}).items()
+                                for source, sid in legacy_ids.items() if tid != sid}
 
     passed, attempts, counts = [], [], {}
     used = 0
     for name, function in sorted(methods.items()):
         matched = False
         counts[name] = 0
-        for plan in plans_for(name, function, rules.get(name)):
+        for plan in plans_for(name, function, rules.get(name), exclusions.get(name, ())):
             if used == max_trials:
                 raise ValueError(f"trial limit {max_trials} reached; untested mappings remain")
             used += 1
@@ -67,7 +70,7 @@ def discover(factory, catalog=None, max_trials=DEFAULT_LIMIT):
 
 
 def select_plan(factory):
-    plan, attempts, _ = discover(factory)
+    plan, attempts, _ = discover(factory, extract_catalog(DeskV1, factory))
     return plan, attempts
 
 
@@ -76,9 +79,10 @@ def select(factory):
     return plan.method, attempts
 
 
-def build(directory, max_trials=DEFAULT_LIMIT, catalog_path=HERE / "interface_catalog.json"):
+def build(directory, max_trials=DEFAULT_LIMIT, catalog_path=None):
     baseline = trial(DeskV1, "dispatch")
-    catalog = json.loads(catalog_path.read_text())
+    catalog = (extract_catalog(DeskV1, CurrentDesk) if catalog_path is None
+               else json.loads(catalog_path.read_text()))
     plan, attempts, counts = discover(CurrentDesk, catalog, max_trials)
     winner = plan.method
     directory.mkdir(parents=True, exist_ok=True)
@@ -87,7 +91,7 @@ def build(directory, max_trials=DEFAULT_LIMIT, catalog_path=HERE / "interface_ca
         stage = Path(root) / "package"
         stage.mkdir()
         shutil.copyfile(HERE / "LICENSE", stage / "LICENSE")
-        for name in ("service.py", "call_plan.py", "adapter.py", "check_route.py", "runner.py"):
+        for name in ("service.py", "fields.py", "call_plan.py", "adapter.py", "check_route.py", "runner.py"):
             shutil.copyfile(HERE / name, stage / ("__main__.py" if name == "runner.py" else name))
         (stage / "binding.py").write_text(f"from call_plan import CallPlan\nPLAN = {plan!r}\nMETHOD = PLAN.method\n")
         artifact = Path(root) / "candidate.pyz"
@@ -105,10 +109,14 @@ def build(directory, max_trials=DEFAULT_LIMIT, catalog_path=HERE / "interface_ca
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-trials", type=int, default=DEFAULT_LIMIT)
-    parser.add_argument("--compare", action="store_true", help="compare discovery only, without packaging")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--catalog", action="store_true", help="print extracted declarations only")
+    modes.add_argument("--compare", action="store_true", help="compare discovery only, without packaging")
     args = parser.parse_args()
-    if args.compare:
-        catalog = json.loads((HERE / "interface_catalog.json").read_text())
+    if args.catalog:
+        report = extract_catalog(DeskV1, CurrentDesk)
+    elif args.compare:
+        catalog = extract_catalog(DeskV1, CurrentDesk)
         report = {}
         for label, info in (("signature_only", None), ("with_catalog", catalog)):
             plan, _, counts = discover(CurrentDesk, info, args.max_trials)
