@@ -28,7 +28,7 @@ class CallPlan:
         )
 
 
-def plans_for(name, function):
+def plans_for(name, function, bindings=None):
     if not inspect.isfunction(function):
         return
     p = inspect.Parameter
@@ -39,14 +39,20 @@ def plans_for(name, function):
     if any(f.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
            for f in fields):
         return
-    required = [f.name for f in fields if f.default is p.empty]
-    optional = [f.name for f in fields if f.default is not p.empty]
-    needed = len(INPUTS) - len(required)
+    bindings = bindings or {}
+    fixed = {k: v for k, v in bindings.items() if v is not None}
+    free = tuple(s for s in INPUTS if s not in fixed.values())
+    if any(f.default is p.empty and f.name in bindings and bindings[f.name] is None
+           for f in fields):
+        return
+    required = [f.name for f in fields if f.default is p.empty and f.name not in bindings]
+    optional = [f.name for f in fields if f.default is not p.empty and f.name not in bindings]
+    needed = len(free) - len(required)
     if not 0 <= needed <= len(optional):
         return
     for extra in combinations(optional, needed):
-        for order in permutations(INPUTS):
-            sources = dict(zip((*required, *extra), order))
+        for order in permutations(free):
+            sources = {**fixed, **dict(zip((*required, *extra), order))}
             positional = [sources.get(f.name) for f in fields if f.kind == p.POSITIONAL_ONLY]
             while positional and positional[-1] is None:
                 positional.pop()

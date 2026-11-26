@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from demo import build, select, trial
+from demo import HERE, build, discover, select, trial
 from service import DeskV2
 
 
@@ -120,9 +120,50 @@ class ParameterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(build(Path(d))["artifact"])
             previous = path.read_bytes()
+            catalog = self.empty_method_catalog(Path(d))
             with patch("demo.CurrentDesk", Ambiguous), self.assertRaisesRegex(ValueError, "found 2"):
-                build(Path(d))
+                build(Path(d), catalog_path=catalog)
             self.assertEqual(path.read_bytes(), previous)
+
+    @staticmethod
+    def empty_method_catalog(directory):
+        path = directory / "example.json"
+        path.write_text(json.dumps({"legacy_ids": {"lane":"L","request":"R","parcel":"P"},
+                                    "methods": {}}))
+        return path
+
+    def test_limit_after_a_match_preserves_package(self):
+        class FirstMatch(DeskV2):
+            dispatch_a = DeskV2.dispatch_v2
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(build(Path(d))["artifact"])
+            previous = path.read_bytes()
+            catalog = self.empty_method_catalog(Path(d))
+            with patch("demo.CurrentDesk", FirstMatch), patch("demo.trial", wraps=trial) as calls:
+                with self.assertRaisesRegex(ValueError, "untested mappings"):
+                    build(Path(d), max_trials=1, catalog_path=catalog)
+                self.assertEqual(calls.call_count, 2)  # baseline plus the successful first mapping
+            self.assertEqual(path.read_bytes(), previous)
+
+    def test_catalog_reduces_actual_trials_and_exact_limit_can_succeed(self):
+        from service import CurrentDesk
+        catalog = json.loads((HERE / "interface_catalog.json").read_text())
+        for info, expected in ((None, 18), (catalog, 5)):
+            with patch("demo.trial", wraps=trial) as calls:
+                plan, _, counts = discover(CurrentDesk, info, expected)
+                self.assertEqual((calls.call_count, sum(counts.values())), (expected, expected))
+                self.assertEqual(plan.method, "dispatch_v2")
+                self.assertEqual(plan.keywords, (("order_id","request"),("chute","lane")))
+                self.assertEqual(plan.positional, ("parcel",))
+
+    def test_conflicting_catalog_stops_before_trial(self):
+        from service import CurrentDesk
+        catalog = json.loads((HERE / "interface_catalog.json").read_text())
+        catalog["methods"]["dispatch_v2"]["renamed_from"]["contents"] = "lane"
+        with patch("demo.trial") as calls, self.assertRaisesRegex(ValueError, "conflicting"):
+            discover(CurrentDesk, catalog)
+        calls.assert_not_called()
 
     def test_unsupported_signatures_are_not_called(self):
         class Other:
