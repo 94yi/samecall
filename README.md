@@ -17,6 +17,17 @@ python3 -I build/parcel-adapter.pyz   # 单独运行打好的成品
 {"method": "dispatch_v2", "receipts": [1, 2], "delivery_count": 2, "retry_receipt": 1}
 ```
 
+## 用旧接口提交自己的示例订单
+
+成品仍提供 `dispatch(lane, request, parcel)`。调用方不需要知道新版方法叫 `dispatch_v2`。用同一个数据库运行下面的命令：
+
+```sh
+python3 -I build/parcel-adapter.pyz dispatch --db build/orders.sqlite blue order-7 lantern
+python3 -I build/parcel-adapter.pyz dispatch --db build/orders.sqlite blue order-7 lantern
+```
+
+在新数据库里，两次都返回 `{"receipt": 1}`，只投递一次。把第二条命令的 `lantern` 改成 `clock` 再试：同一订单号不能改投别的包裹，命令以非零状态退出，原记录保留。这里的数据库会保留在指定路径；不带参数的复验仍使用临时数据库。
+
 ## 怎么找到替代方法？
 
 [构建器](demo.py)先对旧版 `DeskV1.dispatch` 跑一遍投递，记录基线。确认新版 `DeskV2` 已经没有 `dispatch` 后，它枚举**新版类自身定义的、名字以 `dispatch` 开头的可调用项**，按名称排序，逐个用原来的三个参数试投。前缀只决定试谁，不决定选谁。每个候选使用单独的临时数据库，互不影响。
@@ -35,7 +46,9 @@ python3 -I build/parcel-adapter.pyz   # 单独运行打好的成品
 
 验证程序随后用**独立的 SQLite 连接**读取投递表，将返回的回执号与库里的订单号、通道、包裹内容逐项对照。A 和 B 必须有不同回执，第二次提交 A 必须拿回第一次的回执，而且表中只能有两条记录。这就是输出里“提交三次、投递两次、重试回执仍为 1”的含义。
 
-选定方法后，构建器把绑定规则、自建新版服务、验证程序和许可证装进 `.pyz`，再用独立 Python 进程和全新数据库运行**成品**。成品报告的方法必须是选中的方法，回执结果必须与旧版基线一致，才会原子替换本地适配包；复验失败则保留之前的版本。
+验证程序还会用 A 的订单号提交不同包裹：必须被拒绝，拒绝后投递表也必须保持不变。
+
+选定方法后，构建器把兼容入口、绑定规则、自建新版服务、验证程序和许可证装进 `.pyz`，再用独立 Python 进程和全新数据库通过成品的旧入口 `dispatch` 重跑同一组检查。成品报告的方法必须是选中的方法，回执结果必须与旧版基线一致，才会原子替换本地适配包；复验失败则保留之前的版本。
 
 运行 `python3 -m unittest -v` 可检查候选淘汰、无唯一解时停止，以及成品复验失败时保留旧包。
 
