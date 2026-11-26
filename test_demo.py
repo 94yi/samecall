@@ -134,7 +134,9 @@ class ParameterTest(unittest.TestCase):
 
     def test_limit_after_a_match_preserves_package(self):
         class FirstMatch(DeskV2):
-            dispatch_a = DeskV2.dispatch_v2
+            def dispatch_a(self, lane, request, parcel):
+                result = self._deliver(lane, request, parcel)
+                return result
 
         with tempfile.TemporaryDirectory() as d:
             path = Path(build(Path(d))["artifact"])
@@ -185,6 +187,36 @@ class ParameterTest(unittest.TestCase):
         with patch("demo.trial") as calls, self.assertRaisesRegex(ValueError, "conflicting"):
             discover(CurrentDesk, catalog)
         calls.assert_not_called()
+
+    def test_unannotated_source_and_samples_prune_only_observed_mismatches(self):
+        from examples import old_example, new_example
+        from source_evidence import sample_filter
+        from service import PlainLegacy, PlainDesk
+        catalog = extract_catalog(PlainLegacy, PlainDesk)
+        self.assertFalse(catalog["legacy_ids"])
+        self.assertFalse(any(catalog["methods"].values()))
+        filters = (None, sample_filter(PlainLegacy, PlainDesk, old_example),
+                   sample_filter(PlainLegacy, PlainDesk, old_example, new_example))
+        for predicate, expected in zip(filters, (18, 8, 7)):
+            with patch("demo.trial", wraps=trial) as calls:
+                winner, _, _ = discover(PlainDesk, catalog, expected, predicate)
+                self.assertEqual(calls.call_count, expected)
+                self.assertEqual(winner.method, "dispatch_v2")
+        with tempfile.TemporaryDirectory() as d:
+            result = build(Path(d), max_trials=7, plain=True)
+            self.assertEqual(result["packaged"]["receipts"], [1, 2])
+            self.assertEqual(result["packaged"]["retry_receipt"], 1)
+
+    def test_two_direct_forwarders_preserve_previous_package(self):
+        from service import PlainDesk
+        class Twin(PlainDesk):
+            dispatch_a = dispatch_b = PlainDesk.dispatch_v2
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(build(Path(d))["artifact"])
+            previous = path.read_bytes()
+            with patch("demo.CurrentDesk", Twin), self.assertRaisesRegex(ValueError, "found 2"):
+                build(Path(d))
+            self.assertEqual(path.read_bytes(), previous)
 
     def test_unsupported_signatures_are_not_called(self):
         class Other:

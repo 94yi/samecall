@@ -65,3 +65,19 @@ class DeskV4(Desk):
 
 
 CurrentDesk = DeskV4
+
+
+class PlainLegacy(Desk):
+    def dispatch(self, lane, request, parcel):
+        return self._deliver(lane, request, parcel)
+
+
+class PlainDesk(Desk):
+    def dispatch_preview(self, a, b, c):
+        return 1
+
+    def dispatch_redirect(self, a, b, c):
+        return self._deliver("other-lane", b, a)
+
+    def dispatch_v2(self, x, /, *, y, z):
+        return self._deliver(z, y, x)
